@@ -1,0 +1,1 @@
+sudo tshark -i lo -f 'port 7101' -R "http.request.method"
