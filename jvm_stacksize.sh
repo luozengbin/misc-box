@@ -20,6 +20,42 @@
 #    $jvm_stacksize.sh <JVM ProcessID>
 ###########################################################################
 
+print_stacksize()
+{
+    rm -rf ${tmpdir}/stacksize.txt
+    printf "[ PID ]\t[StackSize(kB)]\t[GuardPage(kB)]\t[UsedSize(kB)]\t[Thread Name]\n"
+    ps h -L --format=lwp ${PID} | grep -v "${PID}" | while read pid
+    do
+        # スレッドID
+        pid_hex=`printf '%#x\n' $pid`
+
+        # スレッド名を切り出す
+        threadinfo=`cat ${threadtdump} | fgrep " nid=${pid_hex} " | sed -e "s/^\"\(.*\)\".*nid=\(0x[0-9|a-z]*\).*$/\2,\1/"`
+        if [ "${threadinfo}" == "" ]; then
+            jstack ${PID} > ${threadtdump}
+            threadinfo=`cat ${threadtdump} | fgrep " nid=${pid_hex} " | sed -e "s/^\"\(.*\)\".*nid=\(0x[0-9|a-z]*\).*$/\2,\1/"`
+        fi
+        thread_name=`echo "${threadinfo}" | awk -F"," '{print $2}'`
+
+        # # /proc/<pid>/smaps ファイルからスタックサイズ、ガードページサイズを取得する
+        guard_page=`cat /proc/${PID}/smaps | grep -B16 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
+        stack_page=`cat /proc/${PID}/smaps | grep -A15 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
+        used_size=`cat /proc/${PID}/smaps  | grep -A15 "stack:${pid}" | grep -e "^Rss:" | awk '{print $2}'`
+        stack_size=`expr ${guard_page} + ${stack_page}`
+        printf "%7d\t%15s\t%15s\t%14s\t%s\n" "${pid}" "${stack_size}" "${guard_page}" "${used_size}" "${thread_name}"
+    done > ${tmpdir}/stacksize.txt
+    sort -r -k4,4 ${tmpdir}/stacksize.txt
+}
+
+finally_func() {
+    RET=$?
+    if [ -d ${tmpdir} ]; then
+        rm -rf ${tmpdir}        
+    fi
+    exit ${RET}
+}
+
+trap finally_func EXIT
 
 PID=$1
 
@@ -31,24 +67,16 @@ ps ${PID} | grep [j]ava > /dev/null || {
     read PID
 }
 
-printf "[ PID ]\t[StackSize(kB)]\t[GuardPage(kB)]\t[UsedSize(kB)]\t[Thread Name]\n"
+export PID
 
-# jstackの出力結果からスレッドIDと名前を抽出する
-jstack ${PID} | grep nid | sed -e "s/^\"\(.*\)\".*nid=\(0x[0-9|a-z]*\).*$/\2,\1/" | sort | while read line
-do
-    # スレッドIDを切り出す
-    pid_hex=`echo "${line}" | awk -F"," '{print $1}'`
+export tmpdir=`mktemp -d`
 
-    # スレッド名を切り出す
-    thread_name=`echo "${line}" | awk -F"," '{print $2}'`
+export threadtdump=${tmpdir}/${PID}.tdump
 
-    # スレッドIDを10進数に変換
-    pid=`printf '%d\n' ${pid_hex}`
+jstack ${PID} > ${threadtdump}
 
-    # /proc/<pid>/smaps ファイルからスタックサイズ、ガードページサイズを取得する
-    guard_page=`cat /proc/${PID}/smaps | grep -B16 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
-    stack_page=`cat /proc/${PID}/smaps | grep -A15 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
-    used_size=`cat /proc/${PID}/smaps  | grep -A15 "stack:${pid}" | grep -e "^Rss:" | awk '{print $2}'`
-    stack_size=`expr ${guard_page} + ${stack_page}`
-    printf "%7d\t%15s\t%15s\t%14s\t%s\n" "${pid}" "${stack_size}" "${guard_page}" "${used_size}" "${thread_name}"
-done
+export -f print_stacksize
+
+watch "bash -c print_stacksize"
+
+rm -rf ${tmpdir}
