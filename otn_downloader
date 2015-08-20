@@ -1,0 +1,149 @@
+#!/bin/sh
+
+# set -x
+
+CURL_CMD="curl --compressed -i -s "
+
+# 汎用HTTPヘッダの定義
+ACCEPT_HEADER="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+ACCEPT_LANGUAGE="Accept-Language: ja,en-US;q=0.7,en;q=0.3"
+USER_AGENT="User-Agent: Mozilla/5.0 (Windows NT 6.1; rv:38.0) Gecko/20100101 Firefox/38.0"
+ACCEPT_ENCODING="Accept-Encoding: gzip, deflate"
+CONTENT_TYPE="Content-Type: application/x-www-form-urlencoded"
+CONNECTION="Connection: keep-alive"
+CACHE_CONTROL="Cache-Control: no-cache"
+
+# HTTP 304レスポンスからリダイレクト先を取得する
+print_304_url()
+{
+    local HTTP_RESP=$1
+    echo "${HTTP_RESP}" | fgrep "Location:" | awk '{print $2}' | tr -d '\r'
+}
+
+print_host_header()
+{
+    local URL=$1
+    echo "${URL}" | sed -E "s|^https?://([^/]+)/.*$|Host: \1|"
+}
+
+# HTTPレスポンスからCookie情報の取り出し
+print_cookie()
+{
+    local HTTP_RESP=$1
+    local DOMAIN_NAME=$2
+    local NEWLINE_FLAG=$3
+
+    echo "${HTTP_RESP}" | fgrep "Set-Cookie:" | fgrep "${DOMAIN_NAME}" | while read line
+    do
+        cookie_item=`echo "${line}" | sed -e "s|^Set-Cookie: \(.*\); .*[p|P]ath=/.*$|\1|"`
+        if [ ${NEWLINE_FLAG} -eq 1 ]; then
+            echo "${cookie_item}"
+        else
+            echo -n "${cookie_item}; "
+        fi
+    done
+}
+
+# HTTPレスポンスから入力フォーム項目の取り出し
+print_post_data()
+{
+    local HTTP_RESP=$1
+    echo "${HTTP_RESP}" | sed -e "s|<input|\n<input|g" | fgrep "<input" | while read line
+    do
+        input_item=`echo "${line}" | sed -e "s|^<input .* name=\"\(.*\)\".* value=\"\(.*\)\".*$|\1=\2|"`
+        input_name=`echo ${input_item} | awk -F "=" '{print $1}'`
+
+        # TODO 項目フィルタをパラメータ化する
+        for item_name in v request_id OAM_REQ site2pstoretoken locale ; do
+            if [ "${item_name}" == "${input_name}" ]; then
+                echo -n "${input_item}&"
+            fi
+        done
+    done
+}
+
+# 引数の数の確認
+# if [ $# -eq 0 ]; then
+#     echo "ERR: ダウンロード対象ファイルの相対パスを１つ以上指定してください。"
+#     exit 1
+# fi
+
+DL_URL="https://edelivery.oracle.com/akam/otn/nt/middleware/11g/wls/1036/wls1036_generic.jar"
+# DL_URL="https://edelivery.oracle.com/akam/otn/java/jdeveloper/11.1.1.7.0/jdevstudio11117install.bin"
+DL_USER=""
+DL_PASS=""
+
+DL_FILE="${DL_URL##*/}"
+BASE_COOKIE="s_nr=`date +%s%N | cut -b1-13`; gpw_e24=${START_URL}; s_cc=true; s_sq=[[B]]; oraclelicense=accept-weblogicserver-cookie"
+
+#------------------
+# ダウンロードリンククリック
+#------------------
+START_URL="http://www.oracle.com/technetwork/middleware/weblogic/downloads/wls-main-097127.html?ssSourceSiteId=otnjp"
+TARGET_URL="${DL_URL}"
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+COOKIE_HEADER="Cookie: ${BASE_COOKIE}"
+REFERER_HEADER="Referer: ${START_URL}"
+HTTP_RESP=`${CURL_CMD} "${TARGET_URL}" \
+                  -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+                  -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+                  -H "${COOKIE_HEADER}" -H "${REFERER_HEADER}"`
+
+TARGET_URL=`print_304_url "${HTTP_RESP}"`
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+HTTP_RESP=`${CURL_CMD} "${TARGET_URL}" \
+                  -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+                  -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+                  -H "${COOKIE_HEADER}" -H "${REFERER_HEADER}"`
+
+#------------------
+# ログインイベント
+#------------------
+REFERER_HEADER="Referer: https://login.oracle.com/mysso/signon.jsp"
+TARGET_URL="https://login.oracle.com/oam/server/sso/auth_cred_submit"
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+COOKIE_HEADER="${COOKIE_HEADER}; `print_cookie "${HTTP_RESP}" "" 0`"
+LOGIN_FORM_DATA="`print_post_data "${HTTP_RESP}"`ssousername=${DL_USER}&password=${DL_PASS}"
+HTTP_RESP=`${CURL_CMD} -X POST -d "${LOGIN_FORM_DATA}" "${TARGET_URL}" \
+                  -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+                  -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+                  -H "${COOKIE_HEADER}" -H "${REFERER_HEADER}"`
+
+#------------------
+# ログイン後のリダイレクト
+#------------------
+REFERER_HEADER="Referer: https://login.oracle.com/mysso/signon.jsp"
+TARGET_URL="`print_304_url "${HTTP_RESP}"`"
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+DOMAIN_COOKIE_HEADER="Cookie: ${BASE_COOKIE}; `print_cookie "${HTTP_RESP}" ".oracle.com" 0`"
+COOKIE_HEADER="${DOMAIN_COOKIE_HEADER}"
+HTTP_RESP=`${CURL_CMD} "${TARGET_URL}" \
+                  -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+                  -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+                  -H "${COOKIE_HEADER}" -H "${REFERER_HEADER}"`
+
+#------------------
+# ドメインスイッチ
+#------------------
+REFERER_HEADER="Referer: https://login.oracle.com/mysso/signon.jsp"
+TARGET_URL="`print_304_url "${HTTP_RESP}"`"
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+COOKIE_HEADER="${DOMAIN_COOKIE_HEADER}; `print_cookie "${HTTP_RESP}" "" 0`"
+HTTP_RESP=`${CURL_CMD} "${TARGET_URL}" \
+                  -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+                  -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+                  -H "${COOKIE_HEADER}" -H "${REFERER_HEADER}"`
+
+#------------------
+# ダウンロード
+#------------------
+echo "----------------------------------------------------------------"
+echo "start downloading ${DL_FILE}"
+echo "----------------------------------------------------------------"
+TARGET_URL="`print_304_url "${HTTP_RESP}"`"
+HOST_HEADER=`print_host_header "${TARGET_URL}"`
+COOKIE_HEADER="${DOMAIN_COOKIE_HEADER}"
+curl -progress-bar  "${TARGET_URL}" \
+            -H "${ACCEPT_HEADER}" -H "${ACCEPT_LANGUAGE}" -H "${USER_AGENT}" \
+            -H "${ACCEPT_ENCODING}" -H "${HOST_HEADER}" -H "${CONNECTION}" \
+            -H "${COOKIE_HEADER}" -o "${DL_FILE}"
