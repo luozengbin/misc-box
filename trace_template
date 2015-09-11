@@ -1,0 +1,7 @@
+strace  -ff -s 200 -e <trace=mmap,munmap> -o <file_path>  <cmd...>
+
+ltrace -C -S -ff -o <file_path>  <cmd...>
+
+sudo trace-cmd record -p function_graph  <cmd...>
+
+trace-cmd report
