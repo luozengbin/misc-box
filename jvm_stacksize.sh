@@ -37,7 +37,42 @@ print_stacksize()
         fi
         thread_name=`echo "${threadinfo}" | awk -F"," '{print $2}'`
 
-        # # /proc/<pid>/smaps ファイルからスタックサイズ、ガードページサイズを取得する
+        # /proc/<pid>/smaps ファイルからスタックサイズ、ガードページサイズを取得する
+        # 次のsmaps出力サンプルに★コメントの部分は取得詳細ロジックとなります。
+        # 
+        #    7ff751076000-7ff751079000 ---p 00000000 00:00 0
+        #    Size:                 12 kB    ★説明: StackRedPages(4Kb) + StackYellowPages(8Kb) = 12Kb
+        #    Rss:                   0 kB
+        #    Pss:                   0 kB
+        #    Shared_Clean:          0 kB
+        #    Shared_Dirty:          0 kB
+        #    Private_Clean:         0 kB
+        #    Private_Dirty:         0 kB
+        #    Referenced:            0 kB
+        #    Anonymous:             0 kB
+        #    AnonHugePages:         0 kB
+        #    Swap:                  0 kB
+        #    KernelPageSize:        4 kB
+        #    MMUPageSize:           4 kB
+        #    Locked:                0 kB
+        #    VmFlags: mr mw me ac          ★説明:書き込み不可
+        #    7ff751079000-7ff751177000 rw-p 00000000 00:00 0                          [stack:21275]
+        #    Size:               1016 kB   ★説明: ここからNormal Stackページ
+        #    Rss:                 108 kB
+        #    Pss:                 108 kB
+        #    Shared_Clean:          0 kB
+        #    Shared_Dirty:          0 kB
+        #    Private_Clean:         0 kB
+        #    Private_Dirty:       108 kB
+        #    Referenced:          108 kB
+        #    Anonymous:           108 kB
+        #    AnonHugePages:         0 kB
+        #    Swap:                  0 kB
+        #    KernelPageSize:        4 kB
+        #    MMUPageSize:           4 kB
+        #    Locked:                0 kB
+        #    VmFlags: rd wr mr mw me ac
+        
         guard_page=`cat /proc/${PID}/smaps | grep -B16 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
         stack_page=`cat /proc/${PID}/smaps | grep -A15 "stack:${pid}" | grep -e "^Size:" | awk '{print $2}'`
         used_size=`cat /proc/${PID}/smaps  | grep -A15 "stack:${pid}" | grep -e "^Rss:" | awk '{print $2}'`
