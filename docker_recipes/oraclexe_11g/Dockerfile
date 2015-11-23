@@ -22,6 +22,14 @@ ENV LANG ja_JP.UTF-8
 #---------------
 RUN yum install -y oracle-rdbms-server-11gR2-preinstall
 
+#---------------
+# rlwrap for sqlplus
+#---------------
+WORKDIR /tmp
+wget http://www.mirrorservice.org/sites/dl.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm
+rpm -Uvh epel-release-6-8.noarch.rpm
+yum install -y rlwrap
+
 ADD bin/init.sh /
 RUN chmod +x /init.sh
 

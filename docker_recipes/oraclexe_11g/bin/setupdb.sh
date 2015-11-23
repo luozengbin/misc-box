@@ -11,6 +11,7 @@ echo "export ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe"  >> ${ORACLE_USER_HO
 echo "export ORACLE_SID=XE"                                  >> ${ORACLE_USER_HOME}/.bashrc
 echo "export NLS_LANG=`$ORACLE_HOME/bin/nls_lang.sh`"        >> ${ORACLE_USER_HOME}/.bashrc
 echo "export PATH=$ORACLE_HOME/bin:$PATH"                    >> ${ORACLE_USER_HOME}/.bashrc
+echo "alias sqlplus='rlwrap sqlplus'"                        >> ${ORACLE_USER_HOME}/.bashrc
 
 su - oracle -c "sqlplus -s /nolog" << _EOF
 conn / as sysdba
