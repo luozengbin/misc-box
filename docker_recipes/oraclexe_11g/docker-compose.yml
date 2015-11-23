@@ -1,0 +1,11 @@
+oraclexe11g:
+  container_name: oraclexe11g
+  image: local/oraclexe11g
+  hostname: oraclexe11g
+  privileged: true
+  environment:
+    - LANG=ja_JP.utf8
+  ports:
+    - 18080:8080
+    - 11521:1521
+  command: /init.sh
